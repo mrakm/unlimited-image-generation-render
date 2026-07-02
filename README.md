@@ -96,7 +96,8 @@ Service information and usage summary.
     "prompt": "Text prompt for image generation (required)",
     "width": "Image width (default: 512)",
     "height": "Image height (default: 512)",
-    "seed": "Random seed, -1 for random (default: -1)"
+    "seed": "Random seed, -1 for random (default: -1)",
+    "model": "Pollinations model name (default: flux)"
   }
 }
 ```

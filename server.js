@@ -52,6 +52,7 @@ app.get('/', (req, res) => {
       width: 'Image width (default: 512)',
       height: 'Image height (default: 512)',
       seed: 'Random seed, -1 for random (default: -1)',
+      model: 'Pollinations model name (default: flux)',
     },
   });
 });
@@ -66,7 +67,7 @@ app.get('/health', (req, res) => {
 
 app.get('/generate', async (req, res) => {
   try {
-    const { prompt, width, height, seed } = req.query;
+    const { prompt, width, height, seed, model } = req.query;
 
     if (!prompt) {
       return res.status(400).json({ error: 'prompt is required' });
@@ -87,6 +88,7 @@ app.get('/generate', async (req, res) => {
         width: width ? parseInt(width) : 512,
         height: height ? parseInt(height) : 512,
         seed: seed ? parseInt(seed) : -1,
+        model: model || 'flux',
       });
 
       jobs.set(jobId, {
@@ -113,7 +115,7 @@ app.get('/generate', async (req, res) => {
 
 app.get('/generate/sync', async (req, res) => {
   try {
-    const { prompt, width, height, seed } = req.query;
+    const { prompt, width, height, seed, model } = req.query;
 
     if (!prompt) {
       return res.status(400).json({ error: 'prompt is required' });
@@ -123,6 +125,7 @@ app.get('/generate/sync', async (req, res) => {
       width: width ? parseInt(width) : 512,
       height: height ? parseInt(height) : 512,
       seed: seed ? parseInt(seed) : -1,
+      model: model || 'flux',
     });
 
     res.set('Content-Type', 'image/jpeg');
