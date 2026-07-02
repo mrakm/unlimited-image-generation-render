@@ -90,14 +90,16 @@ Service information and usage summary.
     "generate/sync": "GET /generate/sync?prompt=<text>",
     "job": "GET /job/:jobId",
     "image": "GET /image/:jobId",
-    "health": "GET /health"
+    "health": "GET /health",
+    "upload": "POST /upload (multipart: file)"
   },
   "params": {
     "prompt": "Text prompt for image generation (required)",
     "width": "Image width (default: 512)",
     "height": "Image height (default: 512)",
     "seed": "Random seed, -1 for random (default: -1)",
-    "model": "Pollinations model name (default: flux)"
+    "model": "Pollinations model name (default: flux)",
+    "ref": "Reference image URL or up:<id> for img2img"
   }
 }
 ```
@@ -123,6 +125,31 @@ Liveness probe. Returns `200 OK` whenever the Node process is running.
 | `timestamp` | string | Current server time, ISO-8601 UTC. |
 
 **Use cases:** external keep-alive pings, uptime monitoring, deployment smoke tests. Safe to call as often as desired; performs no upstream requests.
+
+### `POST /upload`
+
+Upload a reference image for img2img generation. Returns an ID you can pass as `ref` to `/generate` or `/generate/sync`.
+
+**Request:** `multipart/form-data` with a `file` field (max 10 MB).
+
+**Response:** `200 OK`, JSON.
+
+```json
+{
+  "id": "up:abc123xyz",
+  "filename": "my-image.jpg",
+  "size": 123456,
+  "usage": { "ref": "up:abc123xyz" }
+}
+```
+
+Then use `?ref=up:abc123xyz` in your generation request.
+
+### `GET /ref/:refId`
+
+Serve a previously uploaded reference image. Used internally when an uploaded image is referenced in generation.
+
+**Response:** `200 OK`, image binary with the original content type.
 
 ### `GET /generate`
 
@@ -208,6 +235,7 @@ Applies to `GET /generate` and `GET /generate/sync`.
 | height  | integer | Image height in pixels.                      | `512`   |
 | seed    | integer | Random seed. Use `-1` for a fresh random seed each request. | `-1`    |
 | model   | string  | Pollinations model name.                     | `flux`  |
+| ref     | string  | Reference image URL for img2img. Use `up:<id>` for uploaded images. | —       |
 
 URL-encode prompt text (spaces become `%20` or `+`).
 
@@ -240,11 +268,24 @@ done
 curl -sSL "http://localhost:3000/image/$JOB_ID" -o cityscape.jpg
 ```
 
-### Reproducible seed
+### Reference image (img2img) — public URL
 
 ```bash
-curl -sSL "http://localhost:3000/generate/sync?prompt=mountain+lake&seed=42&width=1024&height=768" -o lake.jpg
+curl -sSL "http://localhost:3000/generate/sync?prompt=a+dragon+in+the+same+style&ref=https://example.com/my-art.jpg" -o dragon.jpg
 ```
+
+### Reference image — upload first
+
+```bash
+# 1. Upload the reference image
+UPLOAD=$(curl -s -F "file=@./my-art.jpg" http://localhost:3000/upload)
+REF_ID=$(echo "$UPLOAD" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).id))")
+
+# 2. Generate with the uploaded reference
+curl -sSL "http://localhost:3000/generate/sync?prompt=a+dragon+in+the+same+style&ref=$REF_ID" -o dragon.jpg
+```
+
+### Reproducible seed
 
 ### Health check
 
