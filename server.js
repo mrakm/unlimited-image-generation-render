@@ -1,10 +1,13 @@
 const express = require('express');
 const fetch = require('node-fetch');
+const multer = require('multer');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 const jobs = new Map();
+const uploads = new Map();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 function generateId() {
   return Math.random().toString(36).substring(2) + Date.now().toString(36);
@@ -16,12 +19,17 @@ async function generateImage(prompt, options = {}) {
     height = 512,
     seed = -1,
     model = 'flux',
+    ref,
   } = options;
 
   const encodedPrompt = encodeURIComponent(prompt);
   const actualSeed = seed === -1 ? Math.floor(Math.random() * 999999) : seed;
 
-  const url = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&seed=${actualSeed}&model=${model}&nologo=true`;
+  let url = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&seed=${actualSeed}&model=${model}&nologo=true`;
+
+  if (ref) {
+    url += `&image=${encodeURIComponent(ref)}`;
+  }
 
   const response = await fetch(url, {
     redirect: 'follow',
@@ -46,6 +54,7 @@ app.get('/', (req, res) => {
       job: 'GET /job/:jobId',
       image: 'GET /image/:jobId',
       health: 'GET /health',
+      upload: 'POST /upload (multipart: file)',
     },
     params: {
       prompt: 'Text prompt for image generation (required)',
@@ -53,6 +62,7 @@ app.get('/', (req, res) => {
       height: 'Image height (default: 512)',
       seed: 'Random seed, -1 for random (default: -1)',
       model: 'Pollinations model name (default: flux)',
+      ref: 'Reference image URL or up:<id> for img2img',
     },
   });
 });
@@ -65,16 +75,52 @@ app.get('/health', (req, res) => {
   });
 });
 
+app.post('/upload', upload.single('file'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'file is required (multipart, field name: file)' });
+  }
+
+  const id = 'up:' + generateId();
+
+  uploads.set(id, {
+    buffer: req.file.buffer,
+    contentType: req.file.mimetype,
+    createdAt: new Date().toISOString(),
+  });
+
+  res.json({
+    id,
+    filename: req.file.originalname,
+    size: req.file.size,
+    usage: { ref: id },
+  });
+});
+
+app.get('/ref/:refId', (req, res) => {
+  const upload = uploads.get(req.params.refId);
+  if (!upload) {
+    return res.status(404).json({ error: 'Upload not found' });
+  }
+  res.set('Content-Type', upload.contentType);
+  res.send(upload.buffer);
+});
+
 app.get('/generate', async (req, res) => {
   try {
-    const { prompt, width, height, seed, model } = req.query;
+    const { prompt, width, height, seed, model, ref } = req.query;
 
     if (!prompt) {
       return res.status(400).json({ error: 'prompt is required' });
     }
 
+    let resolvedRef = ref;
+    if (ref && ref.startsWith('up:')) {
+      const upload = uploads.get(ref);
+      if (upload) resolvedRef = `${req.protocol}://${req.get('host')}/ref/${ref}`;
+    }
+
     const jobId = generateId();
-    jobs.set(jobId, { status: 'processing', prompt, createdAt: new Date().toISOString() });
+    jobs.set(jobId, { status: 'processing', prompt, ref: resolvedRef, createdAt: new Date().toISOString() });
 
     res.json({
       jobId,
@@ -89,6 +135,7 @@ app.get('/generate', async (req, res) => {
         height: height ? parseInt(height) : 512,
         seed: seed ? parseInt(seed) : -1,
         model: model || 'flux',
+        ref: resolvedRef,
       });
 
       jobs.set(jobId, {
@@ -115,10 +162,16 @@ app.get('/generate', async (req, res) => {
 
 app.get('/generate/sync', async (req, res) => {
   try {
-    const { prompt, width, height, seed, model } = req.query;
+    const { prompt, width, height, seed, model, ref } = req.query;
 
     if (!prompt) {
       return res.status(400).json({ error: 'prompt is required' });
+    }
+
+    let resolvedRef = ref;
+    if (ref && ref.startsWith('up:')) {
+      const upload = uploads.get(ref);
+      if (upload) resolvedRef = `${req.protocol}://${req.get('host')}/ref/${ref}`;
     }
 
     const imageBuffer = await generateImage(prompt, {
@@ -126,6 +179,7 @@ app.get('/generate/sync', async (req, res) => {
       height: height ? parseInt(height) : 512,
       seed: seed ? parseInt(seed) : -1,
       model: model || 'flux',
+      ref: resolvedRef,
     });
 
     res.set('Content-Type', 'image/jpeg');
@@ -183,6 +237,12 @@ setInterval(() => {
       if (now - time > 3600000) {
         jobs.delete(id);
       }
+    }
+  }
+  for (const [id, upload] of uploads) {
+    const time = new Date(upload.createdAt).getTime();
+    if (now - time > 3600000) {
+      uploads.delete(id);
     }
   }
 }, 60000);
