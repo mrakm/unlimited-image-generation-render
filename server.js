@@ -42,8 +42,10 @@ app.get('/', (req, res) => {
     version: '1.0.0',
     usage: {
       generate: 'GET /generate?prompt=<text>',
+      'generate/sync': 'GET /generate/sync?prompt=<text>',
       job: 'GET /job/:jobId',
       image: 'GET /image/:jobId',
+      health: 'GET /health',
     },
     params: {
       prompt: 'Text prompt for image generation (required)',
@@ -51,6 +53,14 @@ app.get('/', (req, res) => {
       height: 'Image height (default: 512)',
       seed: 'Random seed, -1 for random (default: -1)',
     },
+  });
+});
+
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
   });
 });
 
